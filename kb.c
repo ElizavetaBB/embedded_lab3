@@ -1,10 +1,8 @@
 #include "main.h"
 #include <stdbool.h>
-#include "pca9538.h"
 #include "kb.h"
 #include "sdk_uart.h"
 #include "usart.h"
-#include "utils.h"
 #include <string.h>
 #include "gpio_driver.h"
 
@@ -121,9 +119,9 @@ void kb_scan_step(I2C_HandleTypeDef * i2c) {
                     key_time[i] = 0;
                 } else if (key_time[i] == 0) {
                     key_time[i] = get_current_time();
-                } else if (get_time_difference(key_time[i]) >= counted_duration && output_keys[i] == 0) {
-                    output_keys[i] = 1;
-                    append_buffer(i+1);
+                } else if (get_time_difference(key_time[i]) >= counted_duration) {
+                    output_keys[i] = !output_keys[i];
+                    if (output_keys[i] == 1) append_buffer(i+1);
                 }
             }
 

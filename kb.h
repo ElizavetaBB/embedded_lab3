@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "main.h"
+
 bool is_buffer_empty();
 uint8_t get_buffer();
 

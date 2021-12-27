@@ -55,8 +55,6 @@
 
 /* USER CODE BEGIN PV */
 
-//size_t write_ptr = 0;
-//size_t read_ptr = 0;
 char timer_print_buf[256];
 char handle_print_buf[256];
 
@@ -73,7 +71,7 @@ uint8_t change_mode = 0;
 bool needed_change_speed = false;
 
 bool direction = true;
-bool test_mode = true;
+bool test_mode = false;
 bool settings_mode = false;
 
 bool user_mode_defined = false;
@@ -95,12 +93,10 @@ uint16_t mode[MODE_COUNT][MAX_LEN] = {
 		{GPIO_PIN_14, GPIO_PIN_13, 0, 0},
 		{GPIO_PIN_15, GPIO_PIN_13, GPIO_PIN_14, GPIO_PIN_13},
 		{GPIO_PIN_15, GPIO_PIN_14, 0, 0},
-		{0, 0, 0, 0}
-};
+		{0, 0, 0, 0}};
 
 uint16_t speed[MODE_COUNT] = {standart_speed, 0.8*standart_speed,
-		0.6*standart_speed, 1.4*standart_speed, standart_speed
-};
+		0.6*standart_speed, 1.4*standart_speed, standart_speed};
 
 uint8_t current_mode = 0;
 uint8_t current_pin = 0;
@@ -125,26 +121,6 @@ void light_off() {
 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET);
-}
-
-typedef enum {
-    red,
-    green,
-    yellow
-} COLOR;
-
-void light_LED(COLOR color, uint16_t brightness) {
-	switch (color) {
-		case red:
-			htim4.Instance->CCR4 = brightness;
-	        break;
-	    case green:
-	    	htim4.Instance->CCR2 = brightness;
-	        break;
-	    case yellow:
-	      	htim4.Instance->CCR3 = brightness;
-	      	break;
-	}
 }
 
 void init_user_mode(){
@@ -180,19 +156,16 @@ void print_diodes(uint8_t mode_id){
 	}
 }
 
-void print_mode(uint8_t mode_id){
+void print_mode(uint8_t mode_id, bool is_standart){
 	char current_buf[256];
 	UART_Transmit((uint8_t*) "--------------------------------------------------------\n\r");
-	if (mode_id == USER_MODE){
-		UART_Transmit((uint8_t*) "User mode:\n\r");
-	} else {
-		UART_Transmit((uint8_t*) "Current mode:\n\r");
-	}
+	snprintf(current_buf, sizeof(current_buf), "Current mode: %d\r\n", mode_id);
+	UART_Transmit((uint8_t*) current_buf);
 	print_diodes(mode_id);
 	snprintf(current_buf, sizeof(current_buf), "Brightness = %d\r\n", brightness[mode_id]);
 	UART_Transmit((uint8_t*) current_buf);
 	snprintf(current_buf, sizeof(current_buf), "Speed = %d\r\n",
-			(mode_id == USER_MODE) ? speed[mode_id] : current_speed);
+			(is_standart) ? speed[mode_id] : current_speed);
 	UART_Transmit((uint8_t*) current_buf);
 	UART_Transmit((uint8_t*) "--------------------------------------------------------\n\r");
 }
@@ -224,7 +197,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				change_mode = 0;
 				htim7.Instance->PSC = speed[current_mode];
 				current_speed = speed[current_mode];
-				print_mode(current_mode);
+				print_mode(current_mode, true);
 			}
 
 			if (direction) {
@@ -254,7 +227,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				if (needed_change_speed){
 					htim7.Instance->PSC = current_speed;
 					needed_change_speed = false;
-					//print_mode(current_mode, (uint8_t *) "Current mode:\n\r");
 				}
 			}
 		}
@@ -336,8 +308,12 @@ void handle_menu(uint8_t command){
 				} else {
 					mode[USER_MODE][user_pin_id] = pins_sequence[user_chosen_pin];
 					user_pin_id = (user_pin_id + 1) % MAX_LEN;
+					if (user_chosen_pin != 4){
+						if (user_pin_count < MAX_LEN) user_pin_count++;
+					} else {
+						if (user_pin_count > 0) user_pin_count--;
+					}
 					user_chosen_pin = 0;
-					user_pin_count++;
 					UART_Transmit((uint8_t *) "New diode was set\n\r");
 					print_settings();
 				}
@@ -348,17 +324,16 @@ void handle_menu(uint8_t command){
 				UART_Transmit((uint8_t *) "You have to set minimum 2 diodes before saving\n\r");
 				print_settings();
 			} else {
-			brightness[USER_MODE] = user_brightness;
-			speed[USER_MODE] = user_speed;
-			in_menu = false;
-			if (current_mode == USER_MODE){
-				needed_change_speed = true;
-				current_speed = speed[USER_MODE];
-				//htim6.Instance->PSC = speed[USER_MODE];
-				//current_speed = speed[USER_MODE];
-			}
-			settings_mode = false;
-			UART_Transmit((uint8_t*) "Leave menu\n\r");
+				brightness[USER_MODE] = user_brightness;
+				speed[USER_MODE] = user_speed;
+				in_menu = false;
+				if (current_mode == USER_MODE){
+					needed_change_speed = true;
+					current_speed = speed[USER_MODE];
+				}
+				settings_mode = false;
+				user_pin_count = 0;
+				UART_Transmit((uint8_t*) "Leave menu\n\r");
 			}
 			break;
 		default:
@@ -370,44 +345,44 @@ void handle_menu(uint8_t command){
 void handle_command(uint8_t command) {
 	if (in_menu) handle_menu(command);
 	else {
-	switch (command) {
-		case 1:
-			change_mode = (current_mode + 1) % MODE_COUNT;
-			if (change_mode == 4 && !user_mode_defined) change_mode = 0;
-			needed_change_mode = true;
-			break;
-		case 2:
-			change_mode = (current_mode - 1 + MODE_COUNT) % MODE_COUNT;
-			if (change_mode == 4 && !user_mode_defined) change_mode = 3;
-			needed_change_mode = true;
-			break;
-		case 3:
-			if (current_speed > 200){
-				current_speed = 0.9 * current_speed;
-				needed_change_speed = true;
-			}
-			print_mode(current_mode);
-			break;
-		case 4:
-			if (current_speed < 2000){
-				current_speed += 0.1 * current_speed;
-				needed_change_speed = true;
-			}
-			print_mode(current_mode);
-			break;
-		case 5:
-			settings_mode = true;
-			in_menu = true;
-			UART_Transmit((uint8_t*) "Enter menu\n\r");
-			print_settings();
-			break;
-		case 7:
-			print_mode(USER_MODE);
-			break;
-		default:
-			UART_Transmit((uint8_t*) "Wrong key\n\r");
-			break;
-	}
+		switch (command) {
+			case 1:
+				change_mode = (current_mode + 1) % MODE_COUNT;
+				if (change_mode == 4 && !user_mode_defined) change_mode = 0;
+				needed_change_mode = true;
+				break;
+			case 2:
+				change_mode = (current_mode - 1 + MODE_COUNT) % MODE_COUNT;
+				if (change_mode == 4 && !user_mode_defined) change_mode = 3;
+				needed_change_mode = true;
+				break;
+			case 3:
+				if (current_speed > 200){
+					current_speed = 0.9 * current_speed;
+					needed_change_speed = true;
+				}
+				print_mode(current_mode, false);
+				break;
+			case 4:
+				if (current_speed < 2000){
+					current_speed += 0.1 * current_speed;
+					needed_change_speed = true;
+				}
+				print_mode(current_mode, false);
+				break;
+			case 5:
+				settings_mode = true;
+				in_menu = true;
+				UART_Transmit((uint8_t*) "Enter menu\n\r");
+				print_settings();
+				break;
+			case 7:
+				print_mode(USER_MODE, true);
+				break;
+			default:
+				UART_Transmit((uint8_t*) "Wrong key\n\r");
+				break;
+		}
 	}
 }
 
@@ -485,7 +460,7 @@ int main(void)
 	  } else {
 		  if (!is_buffer_empty()){
 		  	  uint8_t key = get_buffer();
-			  if(key >= 0){
+			  if (key >= 0){
 			  	  handle_command(key);
 		  	  }
 		  }
